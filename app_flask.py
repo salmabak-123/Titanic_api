@@ -1,8 +1,12 @@
 import os
-import requests
 
-from flask import Flask, request, jsonify
+import requests
+from flask import Flask, request, jsonify, redirect
+
 app = Flask(__name__)
+
+# Adresse du backend FastAPI : en local = 127.0.0.1:8081, en ligne = variable Heroku API_URL
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8081")
 
 FORM_HTML = """<!DOCTYPE html>
 <html lang="fr">
@@ -77,6 +81,8 @@ async function predire() {
   };
   const box = document.getElementById("result");
   box.style.display = "block";
+  box.className = "";
+  box.innerHTML = "Calcul en cours...";
   try {
     const r = await fetch("/make_predictions", {
       method: "POST",
@@ -92,8 +98,12 @@ async function predire() {
         '<div class="bar"><div style="width:' + pct + '%"></div></div>';
     } else {
       box.className = "ko";
-      const details = (data.details || []).map(d => d.loc.join(".") + " : " + d.msg).join("<br>");
-      box.innerHTML = "<b>Erreur " + r.status + "</b><br>" + (details || data.error);
+      // FastAPI renvoie les erreurs de validation dans "detail" (liste d'objets)
+      const items = data.detail || data.details || [];
+      const msg = Array.isArray(items)
+        ? items.map(d => d.loc[d.loc.length - 1] + " : " + d.msg).join("<br>")
+        : items;
+      box.innerHTML = "<b>Erreur " + r.status + "</b><br>" + (msg || data.error || "");
     }
   } catch (e) {
     box.className = "ko";
@@ -108,7 +118,7 @@ async function predire() {
 
 @app.get("/")
 def home():
-    return jsonify(message="ML model for Titanic survival prediction")
+    return redirect("/form")
 
 
 @app.get("/form")
@@ -120,32 +130,27 @@ def form():
 def make_predictions():
     payload = request.get_json(silent=True)
 
-    print("📤 Flask → FastAPI :", payload)
-
     if payload is None:
-        return jsonify(
-            error="Body JSON manquant ou invalide"
-        ), 400
+        return jsonify(error="Body JSON manquant ou invalide"), 400
+
+    print("Flask -> FastAPI :", payload)
 
     try:
         response = requests.post(
-            "http://127.0.0.1:8081/make_predictions",
+            f"{API_URL}/make_predictions",
             json=payload,
-            timeout=10
+            timeout=30,
         )
-
-        print("📥 FastAPI → Flask :", response.status_code)
-        print("📦 Résultat :", response.text)
-
+        print("FastAPI -> Flask :", response.status_code, response.text)
         return jsonify(response.json()), response.status_code
 
     except requests.exceptions.RequestException as e:
-        print("❌ Erreur connexion FastAPI :", e)
-
+        print("Erreur connexion FastAPI :", e)
         return jsonify(
             error="Impossible de contacter FastAPI",
-            details=str(e)
+            details=str(e),
         ), 503
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
