@@ -1,0 +1,9 @@
+pandas
+scikit-learn
+flask
+pydantic>=2
+fastapi
+uvicorn
+gunicorn
+pytest
+scikit-learn==1.6.1
